@@ -1,50 +1,47 @@
-/*
-
-*/
-
-#define CASE 0
-
-#if CASE == 0
 #include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
+#include <pthread.h>
 
-/*
-function devides 'a' by 'b'
-*/
-int devide(int a, int b)
-{
-    return a / b;
-}
+pthread_t th[2];
 
-/*
-function that subtracts 'a' until it reaches to 0
-*/
-int subtract(int *a)
+void *thread_func(void *arg)
 {
-    while (*a != 0)
+    pthread_t id = pthread_self();
+    if (pthread_equal(id, th[0]))
     {
-        (*a)--;
+        printf("Thread 1 join thread 2.\n");
+        pthread_join(th[1], NULL);
     }
-}
-
-/*
-function that compute the sum of `a` and `b`
-*/
-int add(int a, int b)
-{
-    int result = a + b;
-    return result;
+    else
+    {
+        printf("Thread 2 join thread 1.\n");
+        pthread_join(th[0], NULL);
+    }
+    return NULL;
 }
 
 int main(int argc, char *argv[])
 {
-    for (int i = 0; i < 10; i++)
+    if (pthread_create(&th[0], NULL, thread_func, NULL) != 0)
     {
-        printf("i = %d\n", i);
+        printf("Create thread 1 fail.\n");
+        return -1;
     }
 
+    if (pthread_create(&th[1], NULL, thread_func, NULL) != 0)
+    {
+        printf("Create thread 2 fail.\n");
+        return -1;
+    }
+
+    if (pthread_join(th[0], NULL))
+    {
+        printf("Join thread 1 fail.\n");
+        return -1;
+    }
+    if (pthread_join(th[1], NULL))
+    {
+        printf("Join thread 2 fail.\n");
+        return -1;
+    }
     return 0;
 }
-#elif CASE == 1
-#endif
