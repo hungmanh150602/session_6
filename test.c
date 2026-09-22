@@ -1,3 +1,12 @@
+/*
+CASE 0: multi-thread
+CASE 1: multi-process
+CASE 2: Valgrind
+*/
+
+#define CASE 2
+
+#if CASE == 0
 #include <stdio.h>
 #include <pthread.h>
 
@@ -45,3 +54,17 @@ int main(int argc, char *argv[])
     }
     return 0;
 }
+#elif CASE == 1
+#elif CASE == 2
+#include <stdlib.h>
+#include <stdio.h>
+
+int main(void)
+{
+    int x;
+
+    printf("x = %d\n", x);
+
+    return 0;
+}
+#endif

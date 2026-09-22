@@ -1,6 +1,58 @@
 # OVERVIEW
 
-# GDB
+Hãy đặt hai công cụ cạnh nhau:
+
+```text
+                 User space
+┌─────────────────────────────────────────┐
+│                 Process                 │
+│                                         │
+│  C code     pthread     malloc     IPC  │
+└───────────────────┬─────────────────────┘
+                    │
+                 syscall
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│              Linux kernel               │
+│                                         │
+│ files / processes / memory / network    │
+│ scheduler / signals / devices / IPC     │
+└─────────────────────────────────────────┘
+```
+
+GDB chủ yếu quan sát:
+
+```text
+process
+├── variables
+├── stack
+├── registers
+├── memory
+├── threads
+└── instructions
+```
+
+strace chủ yếu quan sát:
+
+```text
+process
+   │
+   ├── openat()
+   ├── read()
+   ├── write()
+   ├── mmap()
+   ├── fork()
+   ├── execve()
+   ├── wait4()
+   ├── socket()
+   ├── connect()
+   ├── futex()
+   ├── poll()
+   └── signals
+```
+
+# 1. GDB
 
 **GDB does not run the program for you in a special way.**
 
@@ -143,16 +195,16 @@ Example when we use `list 41` command to see the source code around line 41:
 
 ```c
 (gdb) list 41
-36	    int result = a + b;
-37	    return result;
-38	}
-39	
-40	int main(int argc, char *argv[])
-41	{
-42	    for (int i = 0; i < 10; i++)
-43	    {
-44	        printf("i = %d\n", i);
-45	    }
+36     int result = a + b;
+37     return result;
+38 }
+39 
+40 int main(int argc, char *argv[])
+41 {
+42     for (int i = 0; i < 10; i++)
+43     {
+44         printf("i = %d\n", i);
+45     }
 ```
 
 ## Watchpoint
@@ -233,7 +285,7 @@ x/4xb &value
 The result is:
 
 ```text
-0xe7	0x03	0x00	0x00
+0xe7 0x03 0x00 0x00
 ```
 
 Where:
@@ -247,12 +299,12 @@ Where:
 
 Commonly used unit sizes:
 
-| Symbol | Mean              |
+| Symbol | Mean |
 | ------- | -------------------- |
-| `b`     | byte = 1 byte        |
-| `h`     | halfword = 2 bytes   |
-| `w`     | word = 4 bytes       |
-| `g`     | giant word = 8 bytes |
+| `b` | byte = 1 byte |
+| `h` | halfword = 2 bytes |
+| `w` | word = 4 bytes |
+| `g` | giant word = 8 bytes |
 
 Some important formats:
 
@@ -283,6 +335,10 @@ To turn on coredumo, we can use `ulimit -c unlimited`.
 
 Compile the program and use `coredumpctl debug filename` to run it with `gdb`.
 
+```bash
+sudo sysctl -w kernel.core_pattern='core.%e.%p'
+```
+
 ## See registers
 
 ```gdb
@@ -291,7 +347,7 @@ info registers
 
 **See instruction at RIP**
 
-Supposed that we use `info registers rip` to see the address of `rip` and receive: 
+Supposed that we use `info registers rip` to see the address of `rip` and receive:
 
 ```text
 rip            0x58872295615d
@@ -393,7 +449,7 @@ Second, I use `info threads` to see infomation of threads:
 
 ![alt text](image-1.png)
 
-Finally, I use `thread apply all backtrace ` to see all function that threads have stopped.
+Finally, I use `thread apply all backtrace` to see all function that threads have stopped.
 
 ![alt text](image.png)
 
@@ -417,3 +473,240 @@ It has been concluded that the cause of the hang is the `pthread_join` function 
 |set follow-fork-mode child|GDB follow to child|
 |set detach-on-fork off|not detach the other process from GDB|
 |set detach-on-fork on|detach the other process from GDB|
+
+# 2. Strace
+
+## What is strace and why we need it?
+
+If the ***GDB*** help we see inside the program, ***strace*** help we know how the process communicate with Linux Kernel.
+
+## Where is the **strace**?
+
+```text
+             strace
+               │
+               │ observe
+               ▼
+Process ── syscall ──> Kernel
+          ↑       │
+          └───────┘
+```
+
+Example:
+
+```c
+int main(void)
+{
+    int fd = open("abc.txt", O_RDONLY);
+
+    if (fd == -1)
+    {
+        perror("open");
+        return 1;
+    }
+
+    close(fd);
+
+    return 0;
+}
+```
+
+Compile `gcc -g -O0 test.c -o test` and run it with strace:
+
+```bash
+strace ./test 
+```
+
+We can see the very long result, but we should focus some main lines:
+
+```text
+openat(AT_FDCWD, "abc.txt", O_RDONLY)   = -1 ENOENT (No such file or directory)
+dup(2)                                  = 3
+fcntl(3, F_GETFL)                       = 0x80002 (flags O_RDWR|O_CLOEXEC)
+getrandom("\xec\xe5\x1e\x38\xcb\xe6\x00\x13", 8, GRND_NONBLOCK) = 8
+brk(NULL)                               = 0x60d2f7fb8000
+brk(0x60d2f7fd9000)                     = 0x60d2f7fd9000
+newfstatat(3, "", {st_mode=S_IFCHR|0620, st_rdev=makedev(0x88, 0x1), ...}, AT_EMPTY_PATH) = 0
+write(3, "open: No such file or directory\n", 32open: No such file or directory
+) = 32
+close(3)                                = 0
+exit_group(1)                           = ?
+```
+
+The results show that the program encountered an error because it could not find the file to be opened.
+
+## Filter strace
+
+We can filter the output using filters passed to the trace command:
+
+```bash
+strace -e trace=file ./hello
+```
+
+Some filter we can use:
+
+| Filter    | Trace                    |
+| --------- | --------------------------- |
+| `file`    | file operations             |
+| `process` | process creation/management |
+| `network` | socket/network              |
+| `signal`  | signals                     |
+| `memory`  | memory-related syscalls     |
+| `ipc`     | IPC-related operations      |
+| `desc`    | file descriptors            |
+
+## Write to log file
+
+The output of strace is typically long. We can write it to a file.
+
+```bash
+strace -o trace.log ./program
+```
+
+Then use `cat trace.log` or `less trace.log`.
+
+## Focus `fork` process
+
+Use `strace -f ./test` to follow process that is created.
+
+# 3. Valgrind
+
+**What is Valgrind?**
+
+Valgrind is a frame work to check the memory of program.
+
+Some error about memory:
+
+| Bug                 | Mean                         |
+| ------------------- | ------------------------------- |
+| Invalid read        | Read the memory region that does not permitted    |
+| Invalid write       | Write to the memory region that does not permitted    |
+| Use-after-free      | Use memory after `free`        |
+| Double free         | Double `free`    |
+| Memory leak         | Call `malloc` but not call `free` |
+| Uninitialized value | Use the value that does not initialized |
+
+## Check memory Invalid
+
+Example:
+
+```c
+    int *p = malloc(5 * sizeof(int));
+
+    for (int i = 0; i <= 5; i++)
+    {
+        p[i] = i;
+    }
+```
+
+Compile and run wtih:
+
+```bash
+Valgrind ./test
+```
+
+We will receive the result:
+
+```text
+==19492== Invalid write of size 4
+==19492==    at 0x1091C3: main (test.c:68)
+==19492==  Address 0x4ab0054 is 0 bytes after a block of size 20 alloc'd
+==19492==    at 0x4848899: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==19492==    by 0x10919E: main (test.c:64)
+```
+
+Focusing on the first three lines, the notification indicates that we are writing to an invalid memory area at line 68 of the file `test.c`. The reason is that the address we are attempting to write to lies outside the memory region allocated by the `malloc` function (5 * sizeof(int) is 20 bytes).
+
+## Leck memory
+
+Command:
+
+```bash
+valgrind --leak-check=full ./test
+```
+
+Example:
+
+```c
+    int *p = malloc(sizeof(int));
+
+    *p = 100;
+```
+
+```text
+==37927== HEAP SUMMARY:
+==37927==     in use at exit: 4 bytes in 1 blocks
+==37927==   total heap usage: 1 allocs, 0 frees, 4 bytes allocated
+==37927== 
+==37927== LEAK SUMMARY:
+==37927==    definitely lost: 4 bytes in 1 blocks
+==37927==    indirectly lost: 0 bytes in 0 blocks
+==37927==      possibly lost: 0 bytes in 0 blocks
+==37927==    still reachable: 0 bytes in 0 blocks
+==37927==         suppressed: 0 bytes in 0 blocks
+==37927== Rerun with --leak-check=full to see details of leaked memory
+```
+
+As we can see at `HEAP SUMARY`, we have 4 bytes in use after the program have already exited.
+
+And at `LEAK MEMORY`, we have 4 bytes at definitely lost field.
+
+## Use after free
+
+Example:
+
+```c
+    int *p = malloc(sizeof(int));
+
+    *p = 100;
+
+    free(p);
+
+    *p = 20;
+```
+
+```text
+==40248== Invalid write of size 4
+==40248==    at 0x10919D: main (test.c:70)
+==40248==  Address 0x4ab0040 is 0 bytes inside a block of size 4 free'd
+==40248==    at 0x484B27F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==40248==    by 0x109198: main (test.c:67)
+==40248==  Block was alloc'd at
+==40248==    at 0x4848899: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==40248==    by 0x10917E: main (test.c:63)
+```
+
+We attempt to access to the memory that have been released, the **Valgrind** show us the some infomations:
+
+- Location of Invalid write operation at 0x10919D: main (test.c:70).
+- Location of the memory was released at main (test.c:67).
+- Location of the memory was created at main (test.c:63) by called `malloc`.
+
+## Uninitialized memory
+
+Command:
+
+```bash
+valgrind --track-origins=yes ./test
+```
+
+Example:
+
+```c
+    int x;
+
+    printf("x = %d\n", x);
+
+    return 0;
+```
+
+```text
+==47680== Conditional jump or move depends on uninitialised value(s)
+==47680==    at 0x48FAA96: __vfprintf_internal (vfprintf-internal.c:1516)
+==47680==    by 0x48E479E: printf (printf.c:33)
+==47680==    by 0x10916D: main (test.c:66)
+==47680==  Uninitialised value was created by a stack allocation
+==47680==    at 0x109149: main (test.c:63)
+```
+
+We can see that an uninitialized value is used at line 66 in the `main` function, and it originates from a stack allocation at line 63 of the `main` function.
